@@ -1,0 +1,200 @@
+---
+title: "Predicting the class of the exercise"
+author: "Parthiban Malan"
+date: "13th August 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(22)
+```
+
+### Executive Summary
+
+Many fitness enthusiasts collect data about their personal activities to improve their health and to find patterns in their behaviour using devices like Jawbone Up, Nike FuelBand, Fitbit etc. These people quantify **how much** of a particular activity they do, but they rarely quantify **how well** they do it. The purpose of this assignment is to use the barbell lifts data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and to predict the manner in which they did the exercise. The details about the datasets are available at http://groupware.les.inf.puc-rio.br/har.
+
+### Synopsis
+
+Following are the steps performed in building the model.
+
+1. The dataset is downloaded and loaded into dataframes.
+2. The training dataset is explored and key columns are identified.
+3. New datasets are created with the selected columns. 
+4. They are then checked whether they conatin any  missing values. 
+5. The character columns are changed to factor data types
+6. The training dataset is split into 2 in the ratio 70:30 for training and validation datasets.
+7. ML models are built using Classification Trees, Gradient Boosting and Random Forest algorithms.
+8. The testing data is scored with best performing model.
+
+```{r load_packages, echo=TRUE, include=FALSE}
+library(ggplot2)
+library(caret)
+library(rattle)
+```
+
+```{r setup_download_location, echo=TRUE, include=FALSE}
+training_data_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_data_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+downloaded_date <- format(Sys.time(), "%Y-%M-%d %H:%M:%S")
+```
+
+### Download training dataset from `r training_data_url` on `r downloaded_date`.
+
+```{r download_training_dataset, echo=TRUE, include=TRUE, cache=TRUE}
+training_data_file <- paste0(getwd(),"/pml-training.csv")
+if (!file.exists(training_data_file)) {
+  download.file(training_data_url, training_data_file, quiet=TRUE)
+}
+```
+
+### Download testing dataset from `r testing_data_url` on `r downloaded_date`.
+
+```{r download_testing_dataset, echo=TRUE, include=TRUE, cache=TRUE}
+testing_data_file <- paste0(getwd(),"/pml-testing.csv")
+if (!file.exists(testing_data_file)) {
+  download.file(testing_data_url, testing_data_file, quiet=TRUE)
+}
+```
+
+### Create datasets
+
+```{r create_datasets, echo=TRUE, cache=TRUE }
+training_raw_df <- read.csv(training_data_file, header=TRUE, stringsAsFactors=FALSE)
+dim(training_raw_df)
+testing_raw_df <- read.csv(testing_data_file, header=TRUE, stringsAsFactors=FALSE)
+dim(testing_raw_df)
+```
+
+### Understand structure of the datasets
+
+```{r structure_datasets, echo=TRUE, include=TRUE}
+str(training_raw_df)
+```
+
+### Explore datasets to identify key columns
+
+```{r visualize_datasets, echo=TRUE, results='hide'}
+head(training_raw_df)
+tail(training_raw_df)
+summary(training_raw_df)
+```
+
+After exploring sample data and the summary statistics, I see columns named "kurtosis", "skewness", "max", "min", "amplitude", "var", "avg", "stddev" have no data. Hnece they are removed.
+
+```{r selected_columns_datasets, echo=TRUE, include=TRUE}
+selected_columns <- 
+  !grepl("kurtosis_", names(training_raw_df)) & 
+  !grepl("skewness_", names(training_raw_df)) & 
+  !grepl("max_", names(training_raw_df)) & 
+  !grepl("min_", names(training_raw_df)) & 
+  !grepl("amplitude_", names(training_raw_df)) & 
+  !grepl("var_", names(training_raw_df)) & 
+  !grepl("avg_", names(training_raw_df)) & 
+  !grepl("stddev_", names(training_raw_df)) 
+training_df <- training_raw_df[ , selected_columns]
+training_df[1:7] <- NULL
+testing_df <- testing_raw_df[ , selected_columns]
+testing_df[1:7] <- NULL
+```
+
+### Check for missing values
+
+```{r check_missing_values, echo=TRUE, include=TRUE}
+colnames(training_df)[colSums(is.na(training_df)) > 0]
+colnames(testing_df)[colSums(is.na(testing_df)) > 0]
+```
+
+Since there are no columns with missing values, no further action is performed.
+
+### Convert character columns into factors
+
+```{r as_factors_datasets, echo=TRUE, include=TRUE}
+training_df$classe <- as.factor(training_df$classe)
+```
+
+### Split training dataset into training and testing datasets 
+
+```{r spliting_datasets, echo=TRUE, include=TRUE}
+inTraining <- createDataPartition(training_df$classe, p=0.7, list=FALSE)
+training_trn_df <- training_df[inTraining, ]
+dim(training_trn_df)
+training_tst_df <- training_df[-inTraining, ]
+dim(training_tst_df)
+```
+
+The split is perfomed to avoid overfitting the model with the entire training dataset. Cross-validation technique with 5 folds is also leveraged to prevent overfitting.
+
+```{r cross_validation, echo=TRUE, include=TRUE}
+trainingControl <- trainControl(method="cv", number=5)
+```
+
+### Build models 
+
+#### Using Classification Tree (CT) algorithm
+
+```{r classification_tree_model, echo=TRUE, include=TRUE}
+model_with_CT <- train(classe ~ ., data=training_trn_df, method="rpart",  trControl=trainingControl)
+
+fancyRpartPlot(model_with_CT$finalModel)
+
+predict_with_CT <- predict(model_with_CT, newdata=training_tst_df)
+
+conf_matrix_CT <- confusionMatrix(training_tst_df$classe, predict_with_CT)
+conf_matrix_CT$table
+conf_matrix_CT$overall[1]
+```
+
+#### Using Gradient Boosting (GB) algorithm
+
+```{r gradient_boosting_model, echo=TRUE, include=TRUE}
+model_with_GB <- train(classe ~ ., data=training_trn_df, method="gbm",  trControl=trainingControl, 
+verbose=FALSE)
+
+print(model_with_GB)
+plot(model_with_GB)
+
+predict_with_GB <- predict(model_with_GB, newdata=training_tst_df)
+
+conf_matrix_GB <- confusionMatrix(training_tst_df$classe, predict_with_GB)
+conf_matrix_GB$table
+conf_matrix_GB$overall[1]
+```
+
+#### Using Random Forest (RF) algorithm
+
+```{r random_forest_model, echo=TRUE, include=TRUE}
+model_with_RF <- train(classe ~ ., data=training_trn_df, method="rf",  trControl=trainingControl, 
+verbose=FALSE)
+
+print(model_with_RF)
+p1 <- ggplot(model_with_RF)
+p1 <- p1 + ggtitle("Accuracy of Random Forest model")
+p1
+
+predict_with_RF <- predict(model_with_RF, newdata=training_tst_df)
+
+conf_matrix_RF <- confusionMatrix(training_tst_df$classe, predict_with_RF)
+conf_matrix_RF$table
+conf_matrix_RF$overall[1]
+```
+
+### Score given testing data
+
+Of all the 3 models, the accuracy of model built with Random Forest alogithm is high. Hence I score the 
+given testing data with that model.
+
+```{r score_dataset, echo=TRUE, include=TRUE}
+scored_data <- predict(model_with_RF, newdata=testing_df)
+```
+
+```{r print_scores, echo=TRUE, include=TRUE}
+print(data.frame(
+  problem_id=testing_df$problem_id,
+  predicted=scored_data, row.names = NULL
+))
+```
+
+### Conclusion
+
+With 0.7%, the out of sample error is least for the Random Forest model.
